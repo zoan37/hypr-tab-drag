@@ -1,0 +1,9 @@
+[repository]
+name = "hypr-tab-drag"
+authors = ["zoan37"]
+
+[tab-drag]
+description = "Reorder groupbar tabs by dragging them, like browser tabs"
+authors = ["zoan37"]
+output = "tab-drag.so"
+build = ["make all"]
