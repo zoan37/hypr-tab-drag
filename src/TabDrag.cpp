@@ -6,6 +6,7 @@
 #include <hyprland/src/desktop/Workspace.hpp>
 #include <hyprland/src/desktop/view/Group.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/layout/LayoutManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/render/decorations/DecorationPositioner.hpp>
 #include <hyprland/src/render/decorations/IHyprWindowDecoration.hpp>
@@ -82,8 +83,22 @@ namespace {
         return w ? w->getDecorationByType(DECORATION_GROUPBAR) : nullptr;
     }
 
+    // SUPER + drag on a tab moves the whole window out of the group, and that gesture
+    // starts from the same press this one would. It wins: reordering tabs underneath a
+    // window being torn out would fight it.
+    bool windowDragInProgress() {
+        if (!g_layoutManager)
+            return false;
+
+        const auto& CONTROLLER = g_layoutManager->dragController();
+        return CONTROLLER && CONTROLLER->mode() != MBIND_INVALID;
+    }
+
     // Finds the groupbar under the cursor and arms the gesture on it.
     void tryArm(const Vector2D& cursor) {
+        if (windowDragInProgress())
+            return;
+
         for (auto& gref : groups()) {
             auto g = gref.lock();
             if (!g || g->size() < 2)
@@ -163,6 +178,13 @@ void TabDrag::afterMouseMove() {
 
     const auto GROUP = g_drag.group.lock();
     if (!GROUP || GROUP->size() < 2) {
+        reset();
+        return;
+    }
+
+    // A window drag can begin after the press -- a mousebind held down late, or a
+    // dispatcher -- so it has to be rechecked, not just tested when arming.
+    if (windowDragInProgress()) {
         reset();
         return;
     }
