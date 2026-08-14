@@ -7,6 +7,7 @@
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
+#include <format>
 #include <optional>
 #include <stdexcept>
 
@@ -59,10 +60,15 @@ APICALL EXPORT std::string PLUGIN_API_VERSION() {
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     PHANDLE = handle;
 
-    const std::string HASH = __hyprland_api_get_hash();
+    // _get_client_hash() is inline in the headers, so it is baked into the plugin at
+    // build time; _get_hash() is exported by the compositor. Both cover the Hyprland
+    // commit *and* the versions of aquamarine/hyprutils/hyprgraphics/hyprcursor/
+    // hyprlang, so this catches a dependency bump as well as a compositor one.
+    const std::string CLIENT_HASH = __hyprland_api_get_client_hash();
+    const std::string SERVER_HASH = __hyprland_api_get_hash();
 
-    if (HASH != HyprlandAPI::getHyprlandVersion(PHANDLE).hash)
-        fail("headers were built against a different Hyprland than the one running");
+    if (CLIENT_HASH != SERVER_HASH)
+        fail(std::format("built against a different Hyprland than the one running\nplugin: {}\nrunning: {}", CLIENT_HASH, SERVER_HASH));
 
     HyprlandAPI::addConfigValueV2(PHANDLE,
                                   Config::Values::makeConfigValue<Config::Values::Bool>("plugin:tab-drag:enabled", "reorder grouped windows by dragging their groupbar tabs", true,
