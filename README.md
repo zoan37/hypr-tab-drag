@@ -7,7 +7,8 @@ Hyprland can already reorder tabs with `movegroupwindow`, but only from the keyb
 Dragging a tab with `SUPER` held moves the whole window out of the group instead. This
 plugin adds the missing gesture: press a tab, drag sideways, drop it where you want it.
 
-No modifier key. Just press and drag, like Chrome.
+No modifier key. Just press and drag, like Chrome — and the tab slides under the cursor
+as you go, rather than jumping between slots.
 
 ## Install
 
@@ -50,7 +51,10 @@ The gesture follows your existing groupbar layout, so `group:groupbar:stacked`,
 
 ## How it works
 
-The plugin hooks two compositor functions:
+No compositor code is vendored. The plugin hooks four functions — two to drive the
+gesture, two to draw it.
+
+**The gesture:**
 
 - `CInputManager::onMouseButton` — after Hyprland has handled a left press, the plugin
   checks whether the cursor landed on a groupbar tab and arms the gesture.
@@ -60,24 +64,41 @@ The plugin hooks two compositor functions:
 
 Hooking motion globally is what makes the drag keep working after the pointer leaves the
 groupbar — decoration input is otherwise only delivered while the cursor is inside the
-decoration's box.
+decoration's box. A press that never travels 4px stays an ordinary click, so tab
+switching is unchanged.
 
-A press that never travels 4px stays an ordinary click, so tab switching is unchanged.
+**The slide:**
+
+The groupbar draws every tab in a single `draw()` call and its geometry is private, so
+there is no seam to slide one tab through. But the drawing is not immediate: `draw()`
+emits `CRectPassElement` / `CTexPassElement` into the render pass, and both expose a
+mutable box.
+
+- `CHyprGroupBarDecoration::draw` — marks which slot is being dragged, and by how far.
+- `IHyprRenderer::addPassElement` — holds back the elements landing in that slot; they
+  are re-emitted after the rest of the bar with their box translated to the cursor.
+
+Re-emitting last is also what puts the dragged tab above its neighbours while it slides
+over them. Elements are matched on the same box that is later translated, so the test
+and the move cannot disagree about coordinate space.
+
+The offset of the press within the tab is kept, so the tab tracks the cursor rather than
+snapping an edge to it, and it is clamped to the bar so a tab cannot be dragged out of
+its own groupbar.
 
 ## Behaviour and limitations
 
-- **Tabs snap, they don't slide.** The tab jumps a slot at a time as the cursor crosses
-  each boundary, rather than sliding smoothly under the cursor. Smooth sliding needs
-  control of the groupbar's `draw()`, which a plugin can only get by replacing the
-  decoration wholesale.
 - **`SUPER` + drag is untouched.** Dragging a tab with a modifier still moves the window
-  out of the group, exactly as before.
+  out of the group, exactly as before — and the plugin stands down for the whole gesture
+  if a window drag is running.
 - **Middle-click-close is untouched.**
+- Both horizontal and `stacked` groupbars are supported.
 - The gesture is dropped if the group shrinks below two windows, if the group is
   destroyed, or if another mouse button arrives mid-drag. It does not attempt to cover
   every way the compositor can take the pointer away — session lock, forced button
   release and input capture are all handled from inside the compositor, which a plugin
-  cannot hook without pinning itself to many more internal symbols.
+  cannot hook without pinning itself to many more internal symbols. In practice the
+  worst case is a gesture that ends without a visible drop; the next click clears it.
 
 ## Compatibility
 
@@ -88,9 +109,10 @@ a Hyprland update, run:
 hyprpm update
 ```
 
-The two hooked functions are exported in Hyprland's dynamic symbol table. If upstream
-renames or changes the signature of either, the plugin will refuse to load with a
-notification rather than misbehave.
+All four hooked functions are exported in Hyprland's dynamic symbol table. If upstream
+renames or changes the signature of any of them, the plugin refuses to load with a
+notification rather than misbehave. It also checks the compositor's build hash against
+the headers it was compiled with, and reports both if they differ.
 
 ## License
 
